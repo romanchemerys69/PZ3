@@ -1,0 +1,74 @@
+#include <iostream>
+#include <vector>
+#include <thread>
+#include <latch>
+#include <syncstream>
+#include <chrono>
+
+// Worker function stub
+void f(char group, int index) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // Thread-safe output
+    std::osyncstream(std::cout) << "Action " << index << " from set " << group << " executed.\n";
+}
+
+int main() {
+    std::cout << "Calculation started." << std::endl;
+
+    // Parameters: a=6, b=9, c=8, d=7, e=5. Threads: 5
+    // Latch for top branch (a -> d)
+    std::latch l_top(2);
+    // Latch for bottom branch (b, c -> e)
+    std::latch l_bottom(3);
+
+    std::vector<std::jthread> threads;
+
+    // Thread 1: Top branch
+    // Executes part of 'a', waits, executes part of 'd'
+    threads.emplace_back([&]() {
+        f('a', 1); f('a', 2); f('a', 3);
+        l_top.arrive_and_wait();
+        f('d', 1); f('d', 2); f('d', 3);
+        });
+
+    // Thread 2: Top branch
+    // Executes rest of 'a', waits, executes rest of 'd'
+    threads.emplace_back([&]() {
+        f('a', 4); f('a', 5); f('a', 6);
+        l_top.arrive_and_wait();
+        f('d', 4); f('d', 5); f('d', 6); f('d', 7);
+        });
+
+    // Thread 3: Bottom branch
+    // Executes part of 'b', waits, executes part of 'e'
+    threads.emplace_back([&]() {
+        f('b', 1); f('b', 2); f('b', 3); f('b', 4); f('b', 5); f('b', 6);
+        l_bottom.arrive_and_wait();
+        f('e', 1); f('e', 2);
+        });
+
+    // Thread 4: Bottom branch (Mixed load)
+    // Executes rest of 'b' and start of 'c', waits, executes part of 'e'
+    threads.emplace_back([&]() {
+        f('b', 7); f('b', 8); f('b', 9);
+        f('c', 1); f('c', 2); f('c', 3);
+        l_bottom.arrive_and_wait();
+        f('e', 3); f('e', 4);
+        });
+
+    // Thread 5: Bottom branch
+    // Executes rest of 'c', waits, executes rest of 'e'
+    threads.emplace_back([&]() {
+        f('c', 4); f('c', 5); f('c', 6); f('c', 7); f('c', 8);
+        l_bottom.arrive_and_wait();
+        f('e', 5);
+        });
+
+    // Wait for all threads to finish
+    for (auto& t : threads) {
+        if (t.joinable()) t.join();
+    }
+
+    std::cout << "Calculation completed." << std::endl;
+    return 0;
+}
